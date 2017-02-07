@@ -4,6 +4,7 @@ OpenGL::Modern::Helpers;
 use strict;
 use Exporter 'import';
 use Carp qw(croak);
+use Config;
 
 use OpenGL::Modern qw(
     GL_NO_ERROR
@@ -19,6 +20,17 @@ use OpenGL::Modern qw(
     glGetError
     glGetShaderInfoLog_c
     glGetProgramInfoLog_c
+  glGenTextures_c
+  glGetProgramiv_c
+  glGetShaderiv_c
+  glShaderSource_c
+  glGenFramebuffers_c
+  glGenVertexArrays_c
+  glGenBuffers_c
+  glGetIntegerv_c
+  glBufferData_c
+  glUniform2f
+  glUniform4f
 );
 
 =head1 NAME
@@ -144,6 +156,17 @@ $VERSION = '0.01_02';
     croak_on_gl_error
         
     glGetVersion_p
+  glGenTextures_p
+  glGetProgramiv_p
+  glGetShaderiv_p
+  glShaderSource_p
+  glGenFramebuffers_p
+  glGenVertexArrays_p
+  glGenBuffers_p
+  glGetIntegerv_p
+  glBufferData_p
+  glUniform2f_p
+  glUniform4f_p
 );
 
 
@@ -158,6 +181,7 @@ $VERSION = '0.01_02';
     GL_TABLE_TOO_LARGE() => 'The specified table exceeds the implementation\'s maximum supported table size.',
 );
 
+our $PACK_TYPE = $Config{ptrsize} == 4 ? 'L' : 'Q';
 
 sub pack_GLuint {
     my @gluints = @_;
@@ -205,27 +229,20 @@ sub xs_buffer {
     $_[0];
 }
 
-sub glGetShaderInfoLog_p {
-    my $shader = $_[0];
+sub get_info_log_p {
+    my ( $call, $id ) = @_;
     my $bufsize = 1024*64;
     my $buffer = "\0" x $bufsize;
     my $len = "\0" x 4;
     # void glGetShaderInfoLog(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
-    glGetShaderInfoLog_c( $shader, $bufsize, unpack('Q',pack('p',$len)), $buffer);
+    # void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
+    $call->( $id, $bufsize, unpack( $PACK_TYPE, pack( 'p', $len ) ), $buffer );
     $len = unpack 'I', $len;
     return substr $buffer, 0, $len;
 }
 
-sub glGetProgramInfoLog_p {
-    my $program = $_[0];
-    my $bufsize = 1024*64;
-    my $buffer = "\0" x $bufsize;
-    my $len = "\0" x 4;
-    # void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
-    glGetProgramInfoLog_c( $program, $bufsize, unpack('Q',pack('p',$len)), $buffer);
-    $len = unpack 'I', $len;
-    return substr $buffer, 0, $len;
-}
+sub glGetShaderInfoLog_p { get_info_log_p \&glGetShaderInfoLog, @_ }
+sub glGetProgramInfoLog_p { get_info_log_p \&glGetProgramInfoLog, @_ }
 
 sub glGetVersion_p {
     # const GLubyte * GLAPIENTRY glGetString (GLenum name);
@@ -240,6 +257,67 @@ sub croak_on_gl_error {
     if( $error != GL_NO_ERROR ) {
         croak $glErrorStrings{ $error } || "Unknown OpenGL error: $error"
     };
+}
+
+sub gen_thing_p {
+    my ( $call, $n ) = @_;
+    xs_buffer my $new_ids, 4 * $n;
+    $call->( $n, unpack( $PACK_TYPE, pack( 'p', $new_ids ) ) );
+    my @ids = unpack 'I*', $new_ids;
+    return wantarray ? @ids : $ids[0];
+}
+
+sub glGenTextures_p { gen_thing_p \&glGenTextures_c, @_ }
+
+sub glGenFramebuffers_p { gen_thing_p \&glGenFramebuffers_c, @_ }
+
+sub glGenVertexArrays_p { gen_thing_p \&glGenVertexArrays_c, @_ }
+
+sub glGenBuffers_p { gen_thing_p \&glGenBuffers_c, @_ }
+
+sub get_iv_p {
+    my ( $call, $id, $pname, $count ) = @_;
+    $count ||= 1;
+    xs_buffer my $params, 4 * $count;
+    $call->( $id, $pname, unpack( "$PACK_TYPE*", pack( 'p*', $params ) ) );
+    my @params = unpack 'I*', $params;
+    return wantarray ? @params : $params[0];
+}
+
+sub glGetProgramiv_p { get_iv_p \&glGetProgramiv_c, @_ }
+
+sub glGetShaderiv_p { get_iv_p \&glGetShaderiv_c, @_ }
+
+sub glShaderSource_p {
+    my ( $shader, @sources ) = @_;
+    my $count = @sources;
+    my @lengths = map length, @sources;
+    glShaderSource_c( $shader, $count, pack( 'P*', @sources ), pack( 'I*', @lengths ) );
+    return;
+}
+
+sub glGetIntegerv_p {
+    my ( $pname, $count ) = @_;
+    $count ||= 1;
+    xs_buffer my $data, 4 * $count;
+    glGetIntegerv_c $pname, unpack( $PACK_TYPE, pack( 'p', $data ) );
+    my @data = unpack 'I*', $data;
+    return wantarray ? @data : $data[0];
+}
+
+sub glBufferData_p {
+    my ( $target, $oga, $usage ) = @_;
+    glBufferData_c $target, $oga->length, $oga->ptr, $usage;
+}
+
+sub glUniform2f_p {
+    my ( $uniform, $v0, $v1 ) = @_;
+    glUniform2f $uniform, $v0, $v1;
+}
+
+sub glUniform4f_p {
+    my ( $uniform, $v0, $v1, $v2, $v3 ) = @_;
+    glUniform4f $uniform, $v0, $v1, $v2, $v3;
 }
 
 1;
