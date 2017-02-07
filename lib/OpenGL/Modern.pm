@@ -64,13 +64,30 @@ our @EXPORT = qw(
 
 require XSLoader;
 XSLoader::load('OpenGL::Modern', $XS_VERSION);
+use Variable::Magic qw' wizard cast ';
 
-for my $constname ( OpenGL::Modern::NameLists::MakefileAll::makefile_all ) {
-    my ($error, $val) = constant($constname);
-    if ($error) { croak $error; }
+my $wiz = wizard
+  data  => sub { +{ guard => 0, pkg => $_[1] } },
+  fetch => sub {
+    my ( $var, $data, $name ) = @_;
+    return if $data->{guard};
+    local $data->{guard} = 1;    # prevent recursion
+    return if $name !~ /^GL/;    # only do this for constants
+
+    my ( $error, $val ) = constant( $name );
+    if ( $error ) { croak $error; }
     no strict 'refs';
-    *$constname = sub () { $val };
+    *$name = sub () { $val };
+  };
+
+sub setup_for {
+    my ( $pkg ) = @_;
+    {
+        no strict 'refs';
+        cast %{"${pkg}::"}, $wiz, $pkg;
+    }
 }
+setup_for __PACKAGE__;
 
 # Preloaded methods go here.
 
